@@ -1,0 +1,172 @@
+# what is this talk about?
+
+ - not about common mistakes (we have enough talks about that)
+ - more overview than in-depth code (you have enough practical refactoring/SOLID/etc talks out there)
+
+# where to start
+
+ - do you know where to start?
+ - did you discuss anything with the team?
+ - design domain models first
+ - import your testing framework
+ - import zf2 later
+
+# importing zf2
+
+ - skeleton application (as usual)
+ - remove all the useless bits
+    - custom zf2 autoloading
+    - all the paths that are unused
+    - keep the `Application` module (the error handling stuff is useful!)
+ - start designing your module
+    - please use composer to autoload it (no more `getAutoloaderConfig`)
+    - PSR-0 or PSR-4 structure, stop doing the weird `Module.php` stuff!
+ - start integrating your domain with the app
+ 
+# designing a module
+
+ - implement:
+    - `ConfigProviderInterface`
+    - `InitProviderInterface` (only for hacky modules)
+    - `BootstrapListenerInterface`
+       - only for modules with listeners
+       - keep it thin, use the `ListenerAggregateInterface` instead!
+    - nothing else in the Module!
+    - show example of clean module (`OcraCachedViewResolver`?)
+    
+ - config format:
+    - config must be serializable
+    - write a test for `Module#getConfig()`!
+       - `unserialize(serialize($module->getConfig())) == $module->getConfig()`
+    - anything referencing a class should use `::class`
+    - service definitions should use `::class` rather than custom strings
+    - no magic constants! Reference module class constants!
+ 
+ - clarifying the module system:
+    - don't eagerly split modules
+    - modules are designed for reuse
+    - modules for ACL, error handling, mailers, etc... these are reusable
+    - reusable modules are "infrastructure" modules
+    - your app code (and your domain) are not reusable
+    - a single app-specific module will usually suffice
+ 
+ - on composer
+    - EVERY external symbol used in your module should cause a `composer.json` dependency addition
+ 
+ - now, after you implemented and tested your domain...
+ 
+# implementing the application logic
+
+ - decide what web interface you want: Web-pages? API?
+    - if it's an API, do you REALLY need an API?
+       - API
+    - we will go web-first for our case
+
+ - design your controllers after the domain endpoints, and not the opposite
+    - if you have control over the project:
+       - don't build web pages that need new domain logic
+       - instead, build new domain logic that needs web pages
+       - then build the frontend for it
+       - userland interactions should have corresponding domain interactions
+
+# controllers 
+ - single action controllers
+    - you can name each controller after the described interaction
+    - there is no need to group interactions: use namespaces for that
+    - we still have to extend from `AbstractController` or `AbstractActionController`, due to weird
+      `zendframework/zend-mvc` event flows
+       - too bad: `DispatcherInterface` was already an awesome middleware :-(
+    - moving out single interactions is simpler
+    - may be simpler to move to middlewares in the future
+    - we will get back at controller logic later
+    
+# routing
+ - each route on its own
+ - strict route constraints (use those regular expressions!)
+ - nested routes are not really necessary, unless you are concerned about performance
+ - consider using class constants for route names (easier to refactor)
+ - one route <=> one controller (bijective)
+
+# services
+ - keep services as immutable as possible
+ - do not store mutable data in the service manager
+    - config is immutable
+    - mutable data in the service manager leads to service manager abuse (as a registry)
+       
+# back at controllers:
+ - each controller should usually do following:
+    - (optional) retrieve POST data, build a `command` and pass it down to the domain layer
+       - a command must be a valid and immutable object: we did all the validation before building it!
+    - pass data from the domain to the view
+       - can be arrays or a value objects
+          - value objects ensure better type-hinting
+          - value objects are easier to refactor
+          - value objects take some time to code, and view requirements change VERY often
+ 
+ - should controllers follow REST principles?
+    - probably only for GET
+    - POST/PUT/DELETE are interesting for APIs, but we're just complicating things otherwise
+    - make all reads via GET
+    - design all user interactions as specific URLs + POST
+    - you still have to respect HTTP response codes!
+    - it will save you a lot of time (and hair)
+    
+# what about forms?
+ - forms are one of the last bits of your app
+    - usually, people design them first: ew!
+    - design domain first
+    - design command second
+    - then design the form
+ - how do you use a form?
+    - no object binding: consider filling using `$form->bindValues($presets)` manually
+    - no object hydration: consider using `$form->getData()` and `MyCommand::fromFormData($data)`
+ - MASSIVE simplification (trust me!)
+
+# persistence
+
+@TODO (this section highly depends on how the domain was implemented!)
+
+# notes about productivity
+
+ - clean every day
+ - review problems day-by-day
+ - keep your structure clean
+    - it is VERY SIMPLE to keep the structure clean
+       - factories
+       - clean configs
+       - no service location unless STRICTLY required
+       - it is FUCKING SIMPLE TO KEEP IT LIKE THAT!
+    - keeping the structure clean is a no-brainer (once you know how it's done)
+       - keeping the structure clean is very little time-consuming
+       - since it's a no-brainer, it is like "muscle-memory"
+       - yes, it is boring
+       - that's why you can think about other (more important) problems while you do it!
+    - by keeping the structure clean, you enable
+       - being able to apply massive rewrites (if needed)
+       - being able to upgrade your dependencies
+          - semver is your friend (assuming you have all dependencies specified)
+       - being able to detect bugs faster
+       - very linear/measurable/predictable overhead
+       - very stable code (less changes per hotfix)
+       - keep technical debt controlled
+    - example (in man-minutes, as an example):
+       - `ServiceLocatorAware` service
+          - design in 1 hour
+             - includes while you are off (like in not listening to your partner, and thinking about code instead)
+          - code in 15 minutes
+          - test in 10 minutes
+          - addition of ~60 minutes of technical debt
+             - possible service location issues
+             - possible issues while refactoring
+             - possible issues when changing service definitions
+       - service with proper DI
+          - design in 1 hour
+          - code in 15 minutes
+          - code factory 5 in minutes
+          - test in 5 minutes (yep, this got faster!)
+          - test factory in 10 minutes (this is always an annoying one)
+          - addition of ~15 minutes of technical debt
+             - you will still have service location issues with the factory
+       - totals:
+          - `ServiceLocatorAware` service: 145 minutes
+          - service with proper DI: 110 minutes
